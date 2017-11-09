@@ -71,13 +71,14 @@ type K8sutil struct {
 	CrdClient     apiextensionsclient.Interface
 	Kclient       kubernetes.Interface
 	ElasticClient *rest.RESTClient
+	K8sVersion    string
 	MasterHost    string
 }
 
 // New creates a new instance of k8sutil
 func New(kubeCfgFile, masterHost string) (*K8sutil, error) {
 
-	client, crdclient, esClient, err := newKubeClient(kubeCfgFile)
+	client, crdclient, esClient, k8sVersion, err := newKubeClient(kubeCfgFile)
 
 	if err != nil {
 		logrus.Fatalf("Could not init Kubernetes client! [%s]", err)
@@ -88,6 +89,7 @@ func New(kubeCfgFile, masterHost string) (*K8sutil, error) {
 		CrdClient:     crdclient,
 		MasterHost:    masterHost,
 		ElasticClient: esClient,
+		K8sVersion:    k8sVersion,
 	}
 
 	return k, nil
@@ -108,7 +110,7 @@ func buildConfig(kubeCfgFile string) (*rest.Config, error) {
 	return rest.InClusterConfig()
 }
 
-func newKubeClient(kubeCfgFile string) (kubernetes.Interface, apiextensionsclient.Interface, *rest.RESTClient, error) {
+func newKubeClient(kubeCfgFile string) (kubernetes.Interface, apiextensionsclient.Interface, *rest.RESTClient, string, error) {
 
 	// Create the client config. Use kubeconfig if given, otherwise assume in-cluster.
 	Config, err := buildConfig(kubeCfgFile)
@@ -122,13 +124,16 @@ func newKubeClient(kubeCfgFile string) (kubernetes.Interface, apiextensionsclien
 		panic(err)
 	}
 
+	version, _ := client.ServerVersion()
+	k8sVersion := fmt.Sprintf("%s.%s", version.Major, version.Minor)
+
 	// Create the CRD Client
 	CrdClient := apiextensionsclient.NewForConfigOrDie(Config)
 
 	// Create the elastic client
 	esClient, _, _ := crd.NewClient(Config)
 
-	return client, CrdClient, esClient, nil
+	return client, CrdClient, esClient, k8sVersion, nil
 }
 
 // GetElasticSearchClusters returns a list of custom clusters defined
@@ -146,6 +151,8 @@ func (k *K8sutil) GetElasticSearchClusters() ([]myspec.ElasticsearchCluster, err
 		}
 		break
 	}
+
+	logrus.Infof("Kubernetes Cluster Version: %s", k.K8sVersion)
 
 	return elasticSearchList.Items, nil
 }
